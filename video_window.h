@@ -1,28 +1,67 @@
 #include "includes.h"
 
-class VideoWindow : public Gtk::Window {
+class VideoWindow {
 public:
     VideoWindow()
     {
-        set_title("Video Playback");
-        fullscreen(); // start fullscreen
-        signal_key_press_event().connect(sigc::mem_fun(*this, &VideoWindow::on_key_press), false);
+        SDL_Init(SDL_INIT_VIDEO);
+        window = SDL_CreateWindow("Video Playback",
+                                  SDL_WINDOWPOS_UNDEFINED,
+                                  SDL_WINDOWPOS_UNDEFINED,
+                                  1280, 720,
+                                  SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN);
+        is_fullscreen = true;
     }
 
-    bool on_key_press(GdkEventKey* event)
+    ~VideoWindow()
     {
-        if (event->keyval == GDK_KEY_f || event->keyval == GDK_KEY_F) {
-            if (is_fullscreen) {
-                unfullscreen();
-            } else {
-                fullscreen();
-            }
-            is_fullscreen = !is_fullscreen;
-            return true;
-        }
-        return false;
+        if (window)
+            SDL_DestroyWindow(window);
+        SDL_Quit();
     }
+
+    void toggle_fullscreen()
+    {
+        if (is_fullscreen)
+            SDL_SetWindowFullscreen(window, 0);
+        else
+            SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN);
+        is_fullscreen = !is_fullscreen;
+    }
+
+    // Process SDL events, return false if the window should close
+    bool process_events()
+    {
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_QUIT)
+                return false;
+            if (e.type == SDL_KEYDOWN) {
+                if (e.key.keysym.sym == SDLK_f)
+                    toggle_fullscreen();
+            }
+        }
+        return true;
+    }
+
+    guintptr get_window_handle()
+    {
+        SDL_SysWMinfo info;
+        SDL_VERSION(&info.version);
+        if (!SDL_GetWindowWMInfo(window, &info))
+            return 0;
+#if defined(SDL_VIDEO_DRIVER_X11)
+        return (guintptr)info.info.x11.window;
+#elif defined(SDL_VIDEO_DRIVER_WAYLAND)
+        return (guintptr)info.info.wl.surface;
+#else
+        return 0;
+#endif
+    }
+
+    SDL_Window* get_window() { return window; }
 
 private:
-    bool is_fullscreen = true;
+    SDL_Window* window = nullptr;
+    bool is_fullscreen = false;
 };

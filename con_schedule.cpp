@@ -5,11 +5,11 @@ class FillerColumns : public Gtk::TreeModel::ColumnRecord {
 public:
     FillerColumns() {
         add(file_path);
-		add(duration_seconds);
+        add(duration_seconds);
     }
 
     Gtk::TreeModelColumn<std::string> file_path;
-	Gtk::TreeModelColumn<int> duration_seconds;
+    Gtk::TreeModelColumn<int> duration_seconds;
 };
 
 class PlaylistColumns : public Gtk::TreeModel::ColumnRecord {
@@ -18,17 +18,17 @@ public:
         add(start_time);
         add(start_time_seconds);
         add(file_path);
-		add(duration_seconds);
+        add(duration_seconds);
     }
 
     Gtk::TreeModelColumn<std::string> start_time;
     Gtk::TreeModelColumn<int> start_time_seconds; // internal use
     Gtk::TreeModelColumn<std::string> file_path;
-	Gtk::TreeModelColumn<int> duration_seconds;
+    Gtk::TreeModelColumn<int> duration_seconds;
 };
 
-enum class PlayingType { None, Playlist, Filler };
-PlayingType currently_playing = PlayingType::None;
+enum class PlayingType { Nothing, Playlist, Filler };
+PlayingType currently_playing = PlayingType::Nothing;
 int current_end_time = 0;
 
 class MainWindow : public Gtk::Window {
@@ -37,8 +37,8 @@ public:
         : playlist_label("Playlist"), filler_label("Filler Content"),
           add_playlist_button("Add Playlist Item"), add_filler_button("Add Filler Item"),
           bulk_add_playlist_button("Add Playlist Items from CSV"),
-          start_button("Start") {
-
+          start_button("Start"), stop_button("Stop") {
+          
         set_title("Video Scheduler");
         set_default_size(800, 600);
 
@@ -75,6 +75,7 @@ public:
         main_hbox.pack_start(playlist_box);
         main_hbox.pack_start(filler_box);
         main_vbox.pack_start(start_button, Gtk::PACK_SHRINK);
+        main_vbox.pack_start(stop_button, Gtk::PACK_SHRINK);
 
         start_button.signal_clicked().connect(sigc::mem_fun(*this, &MainWindow::on_start_clicked));
 
@@ -89,7 +90,7 @@ private:
 
     Gtk::Label playlist_label, filler_label;
     Gtk::TreeView playlist_view, filler_view;
-    Gtk::Button add_playlist_button, add_filler_button, start_button, bulk_add_playlist_button;
+    Gtk::Button add_playlist_button, add_filler_button, start_button, stop_button, bulk_add_playlist_button;
 
     PlaylistColumns playlist_columns;
     FillerColumns filler_columns;
@@ -105,7 +106,6 @@ private:
 
         gst_element_set_state(pipeline, GST_STATE_PAUSED);
         GstStateChangeReturn ret = gst_element_get_state(pipeline, nullptr, nullptr, GST_CLOCK_TIME_NONE);
-    
         gint64 duration = 0;
         if (ret == GST_STATE_CHANGE_SUCCESS && gst_element_query_duration(pipeline, GST_FORMAT_TIME, &duration)) {
             gst_element_set_state(pipeline, GST_STATE_NULL);
@@ -124,83 +124,83 @@ private:
         dialog.add_button("Open", Gtk::RESPONSE_OK);
 
         if (dialog.run() == Gtk::RESPONSE_OK) {
-	        std::string filepath = dialog.get_filename();
-	        int duration = get_video_duration(filepath);
+            std::string filepath = dialog.get_filename();
+            int duration = get_video_duration(filepath);
             Gtk::TreeModel::Row row = *(playlist_store->append());
             row[playlist_columns.start_time] = "09:00AM";
             row[playlist_columns.start_time_seconds] = 9 * 3600;
             row[playlist_columns.file_path] = dialog.get_filename();
-	        row[playlist_columns.duration_seconds] = duration;
-			std::cout << "Filename: " << filepath << std::endl;
-			std::cout << "Duration: " << duration << std::endl;
+            row[playlist_columns.duration_seconds] = duration;
+            std::cout << "Filename: " << filepath << std::endl;
+            std::cout << "Duration: " << duration << std::endl;
         }
     }
 
-	void on_bulk_add_playlist_item() {
-	    Gtk::FileChooserDialog dialog("Choose CSV file", Gtk::FILE_CHOOSER_ACTION_OPEN);
-	    dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
-	    dialog.add_button("Open", Gtk::RESPONSE_OK);
-	
-	    auto filter = Gtk::FileFilter::create();
-	    filter->set_name("CSV files");
-	    filter->add_pattern("*.csv");
-	    dialog.add_filter(filter);
-	
-	    if (dialog.run() != Gtk::RESPONSE_OK)
-	        return;
-	
-	    std::string filepath = dialog.get_filename();
-	    std::ifstream file(filepath);
-	    if (!file.is_open()) {
-	        std::cerr << "Failed to open CSV file: " << filepath << std::endl;
-	        return;
-	    }
+    void on_bulk_add_playlist_item() {
+        Gtk::FileChooserDialog dialog("Choose CSV file", Gtk::FILE_CHOOSER_ACTION_OPEN);
+        dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
+        dialog.add_button("Open", Gtk::RESPONSE_OK);
+    
+        auto filter = Gtk::FileFilter::create();
+        filter->set_name("CSV files");
+        filter->add_pattern("*.csv");
+        dialog.add_filter(filter);
+    
+        if (dialog.run() != Gtk::RESPONSE_OK)
+            return;
+    
+        std::string filepath = dialog.get_filename();
+        std::ifstream file(filepath);
+        if (!file.is_open()) {
+            std::cerr << "Failed to open CSV file: " << filepath << std::endl;
+            return;
+        }
 
-	    std::string line;
-	    while (std::getline(file, line)) {
-	        std::istringstream ss(line);
-	        std::string start_time, filename;
-	
-	        if (!std::getline(ss, start_time, ',') || !std::getline(ss, filename))
-	            continue;
-	
-	        std::tm tm{};
-	        std::istringstream ts(start_time);
-	        ts >> std::get_time(&tm, "%I:%M%p");  // e.g., "09:30AM"
-	
-	        if (ts.fail()) {
-	            std::cerr << "Invalid time format: " << start_time << std::endl;
-	            continue;
-	        }
-	
-	        int seconds = tm.tm_hour * 3600 + tm.tm_min * 60;
-	        std::string filepath = filename;
-	        int duration = get_video_duration(filepath);	
-	        Gtk::TreeModel::Row row = *(playlist_store->append());
-	        row[playlist_columns.start_time] = start_time;
-	        row[playlist_columns.start_time_seconds] = seconds;
-	        row[playlist_columns.file_path] = filepath;
-	        row[playlist_columns.duration_seconds] = duration;
-			std::cout << "Filename: " << filepath << std::endl;
-			std::cout << "Start Time: " << seconds << std::endl;
-			std::cout << "Duration: " << duration << std::endl;
-	    }
-	}
+        std::string line;
+        while (std::getline(file, line)) {
+            std::istringstream ss(line);
+            std::string start_time, filename;
+    
+            if (!std::getline(ss, start_time, ',') || !std::getline(ss, filename))
+                continue;
+    
+            std::tm tm{};
+            std::istringstream ts(start_time);
+            ts >> std::get_time(&tm, "%I:%M%p");  // e.g., "09:30AM"
+    
+            if (ts.fail()) {
+                std::cerr << "Invalid time format: " << start_time << std::endl;
+                continue;
+            }
+    
+            int seconds = tm.tm_hour * 3600 + tm.tm_min * 60;
+            std::string filepath = filename;
+            int duration = get_video_duration(filepath);    
+            Gtk::TreeModel::Row row = *(playlist_store->append());
+            row[playlist_columns.start_time] = start_time;
+            row[playlist_columns.start_time_seconds] = seconds;
+            row[playlist_columns.file_path] = filepath;
+            row[playlist_columns.duration_seconds] = duration;
+            std::cout << "Filename: " << filepath << std::endl;
+            std::cout << "Start Time: " << seconds << std::endl;
+            std::cout << "Duration: " << duration << std::endl;
+        }
+    }
 
     void on_add_filler_item() {
         Gtk::FileChooserDialog dialog("Choose a filler file", Gtk::FILE_CHOOSER_ACTION_OPEN);
-	    dialog.set_select_multiple(true); // Enable multiple selection
+        dialog.set_select_multiple(true); // Enable multiple selection
         dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
         dialog.add_button("Open", Gtk::RESPONSE_OK);
 
         if (dialog.run() == Gtk::RESPONSE_OK) {
-        	std::vector<std::string> filenames = dialog.get_filenames();
-        	for (const auto& filepath : filenames) {
-        	    Gtk::TreeModel::Row row = *(filler_store->append());
-        	    row[filler_columns.file_path] = filepath;
-	            int duration = get_video_duration(filepath);
-	            row[filler_columns.duration_seconds] = duration;
-        	}
+            std::vector<std::string> filenames = dialog.get_filenames();
+            for (const auto& filepath : filenames) {
+                Gtk::TreeModel::Row row = *(filler_store->append());
+                row[filler_columns.file_path] = filepath;
+                int duration = get_video_duration(filepath);
+                row[filler_columns.duration_seconds] = duration;
+            }
         }
     }
 
@@ -225,9 +225,17 @@ private:
         Glib::signal_timeout().connect_seconds(sigc::mem_fun(*this, &MainWindow::check_schedule), 1);
     }
 
+    void on_stop_clicked() {
+        running = false;
+	//Code goes here to stop video playback and hide/close SDL window.
+    }
+
     bool check_schedule() {
         if (!running)
             return false;
+
+        if (video_window)
+            video_window->process_events();
 
         auto now = std::time(nullptr);
         std::tm* local_tm = std::localtime(&now);
@@ -236,7 +244,7 @@ private:
         // Check if we should start a playlist item
         for (auto& row : playlist_store->children()) {
             int start = row[playlist_columns.start_time_seconds];
-		    int duration = row[playlist_columns.duration_seconds];
+            int duration = row[playlist_columns.duration_seconds];
             if (start == current_seconds) {
                 play_file(row[playlist_columns.file_path]);
                 currently_playing = PlayingType::Playlist;
@@ -246,7 +254,7 @@ private:
         }
 
         // If something is playing and not finished, do nothing
-        if (currently_playing != PlayingType::None && current_seconds < current_end_time)
+        if (currently_playing != PlayingType::Nothing && current_seconds < current_end_time)
             return true;
 
         // Playlist finished, check if next playlist item is in the future
@@ -262,8 +270,8 @@ private:
 
         if (gap > 10) { // If we have enough time for a filler
             for (auto& row : filler_store->children()) {
-		   		int duration = row[filler_columns.duration_seconds];
-				std::cout << "Duration: " << row[filler_columns.duration_seconds] << std::endl;
+                   int duration = row[filler_columns.duration_seconds];
+                std::cout << "Duration: " << row[filler_columns.duration_seconds] << std::endl;
                 play_file(row[filler_columns.file_path]);
                 currently_playing = PlayingType::Filler;
                 // Assume duration = 30s for simplicity
@@ -271,46 +279,50 @@ private:
                 break;
             }
         /*} else { ()
-		//SHOW AVCON LOGO HERE
-		*/
-		}
+        //SHOW AVCON LOGO HERE
+        */
+        }
         return true;
     }
 
-	VideoWindow* video_window = nullptr;
+        VideoWindow* video_window = nullptr;
 
-	void play_file(const std::string& path)
-	{
-	    if (current_player) {
-	        gst_element_set_state(current_player, GST_STATE_NULL);
-	        gst_object_unref(current_player);
-	        current_player = nullptr;	
-	    }
-		
-	    // Create the playbin
-	    current_player = gst_element_factory_make("playbin", nullptr);
-	    if (!current_player) {
-	        std::cerr << "Failed to create playbin.\n";
-	        return;
-	    }
-	
-	    // Create the autovideosink
-	    GstElement* sink = gst_element_factory_make("autovideosink", nullptr);
-	    if (!sink) {
-	        std::cerr << "Failed to create autovideosink.\n";
-	        return;
-	    }
-	
-	    // Set the sink on the player
-	    g_object_set(current_player, "video-sink", sink, NULL);
-	
-	    // Set the URI to the file
-	    std::string uri = Glib::filename_to_uri(path);
-	    g_object_set(current_player, "uri", uri.c_str(), NULL);
-	
-	    // Play
-	    gst_element_set_state(current_player, GST_STATE_PLAYING);
-	}
+    void play_file(const std::string& path)
+    {
+        if (current_player) {
+            gst_element_set_state(current_player, GST_STATE_NULL);
+            gst_object_unref(current_player);
+            current_player = nullptr;    
+        }
+            if (!video_window)
+                video_window = new VideoWindow();
+
+            // Create the playbin
+            current_player = gst_element_factory_make("playbin", nullptr);
+            if (!current_player) {
+                std::cerr << "Failed to create playbin.\n";
+                return;
+            }
+
+            // Create a video sink that supports GstVideoOverlay
+            GstElement* sink = gst_element_factory_make("xvimagesink", "videosink");
+            if (!sink) {
+                std::cerr << "Failed to create Video Sink.\n";
+                return;
+            }
+
+            g_object_set(current_player, "video-sink", sink, NULL);
+
+            if (GST_IS_VIDEO_OVERLAY(sink)) {
+                guintptr handle = video_window->get_window_handle();
+                gst_video_overlay_set_window_handle(GST_VIDEO_OVERLAY(sink), handle);
+            }
+
+            std::string uri = Glib::filename_to_uri(path);
+            g_object_set(current_player, "uri", uri.c_str(), NULL);
+
+            gst_element_set_state(current_player, GST_STATE_PLAYING);
+    }
 };
 
 int main(int argc, char* argv[]) {

@@ -1,5 +1,8 @@
 #include <gtkmm.h>
 #include <gst/gst.h>
+#include <gst/video/videooverlay.h>
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_syswm.h>
 #include <iostream>
 #include <fstream>
 #include <ctime>
