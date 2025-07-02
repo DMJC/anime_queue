@@ -37,6 +37,7 @@ public:
         : playlist_label("Playlist"), filler_label("Filler Content"),
           add_playlist_button("Add Playlist Item"), add_filler_button("Add Filler Item"),
           bulk_add_playlist_button("Add Playlist Items from CSV"),
+          export_playlist_button("Export Playlist to CSV"),
           start_button("Start"), stop_button("Stop") {
           
         set_title("Video Scheduler");
@@ -62,8 +63,10 @@ public:
         playlist_box.pack_start(playlist_view);
         playlist_box.pack_start(add_playlist_button, Gtk::PACK_SHRINK);
         playlist_box.pack_start(bulk_add_playlist_button, Gtk::PACK_SHRINK);
+        playlist_box.pack_start(export_playlist_button, Gtk::PACK_SHRINK);
         add_playlist_button.signal_clicked().connect(sigc::mem_fun(*this, &MainWindow::on_add_playlist_item));
         bulk_add_playlist_button.signal_clicked().connect(sigc::mem_fun(*this, &MainWindow::on_bulk_add_playlist_item));
+        export_playlist_button.signal_clicked().connect(sigc::mem_fun(*this, &MainWindow::on_export_playlist));
         // Filler side
         filler_box.pack_start(filler_label, Gtk::PACK_SHRINK);
         filler_view.set_model(filler_store = Gtk::ListStore::create(filler_columns));
@@ -90,7 +93,7 @@ private:
 
     Gtk::Label playlist_label, filler_label;
     Gtk::TreeView playlist_view, filler_view;
-    Gtk::Button add_playlist_button, add_filler_button, start_button, stop_button, bulk_add_playlist_button;
+    Gtk::Button add_playlist_button, add_filler_button, start_button, stop_button, bulk_add_playlist_button, export_playlist_button;
 
     PlaylistColumns playlist_columns;
     FillerColumns filler_columns;
@@ -184,6 +187,33 @@ private:
             std::cout << "Filename: " << filepath << std::endl;
             std::cout << "Start Time: " << seconds << std::endl;
             std::cout << "Duration: " << duration << std::endl;
+        }
+    }
+
+    void on_export_playlist() {
+        Gtk::FileChooserDialog dialog("Save CSV file", Gtk::FILE_CHOOSER_ACTION_SAVE);
+        dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
+        dialog.add_button("Save", Gtk::RESPONSE_OK);
+        dialog.set_do_overwrite_confirmation(true);
+
+        auto filter = Gtk::FileFilter::create();
+        filter->set_name("CSV files");
+        filter->add_pattern("*.csv");
+        dialog.add_filter(filter);
+        dialog.set_current_name("playlist.csv");
+
+        if (dialog.run() != Gtk::RESPONSE_OK)
+            return;
+
+        std::string filepath = dialog.get_filename();
+        std::ofstream file(filepath);
+        if (!file.is_open()) {
+            std::cerr << "Failed to open CSV file for writing: " << filepath << std::endl;
+            return;
+        }
+
+        for (auto& row : playlist_store->children()) {
+            file << static_cast<std::string>(row[playlist_columns.start_time]) << ',' << static_cast<std::string>(row[playlist_columns.file_path]) << '\n';
         }
     }
 
